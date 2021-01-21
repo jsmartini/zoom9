@@ -12,7 +12,7 @@ logging.basicConfig(
         #format="%(asctime)s [%(levelname)s] %(messages)s"
     )
 import sys
-logging.getLogger().addHandler(logging.FileHandler(f"output-{datetime.datetime.now().strftime('%X')}.log"))
+#logging.getLogger().addHandler(logging.FileHandler(f"output-{datetime.datetime.now().strftime('%X')}.log"))
 logging.getLogger().addHandler(logging.StreamHandler(sys.stdout))
 
 class PacketStatus(Enum):
@@ -56,16 +56,17 @@ def unpack(packet):
             #cnt + 1 because we are at C not the first datum of serialized pickle
             return (pickle.loads(packet[cnt+1:cnt+1+int(meta["length"])]), meta["status"])
 
-import asyncio
+
 
 from uuid import uuid4
 from time import sleep
 import time
-
+from queue import LifoQueue as Stack
+import asyncio
 
 
 class z9c(Serial):
-    def __init__(self, dev, baud=115200):
+    def __init__(self, dev, baud=115200, async_mode = False):
         super().__init__(port=dev, baudrate=baud)
         self.logger = logging.getLogger()
         self.logger.info(f"Initialized Device {dev} @Baudrate {baud}")
@@ -74,6 +75,16 @@ class z9c(Serial):
         self.id = str(uuid4())
         self.logger.info(f"Created Serial Device for resource {dev} as ID:{self.id}")
         self.establish_connection()
+        self.async_mode = async_mode
+        if self.async_mode:
+            self.recv_buffer = Stack(maxsize=200)
+            self.send_buffer = Stack(maxsize=200)
+            self.logger.info("STARTING auto run Server")
+
+
+    def clear_device_buffer(self):
+        logging.debug("Clearing Device Buffer")
+        while (out := self.recv())[1] == "ACK": continue
 
     def establish_connection(self):
         pkt=self.id
@@ -83,6 +94,7 @@ class z9c(Serial):
             if (r := self.recv())[1] == "ACK":
                 self.connection = True
                 self.logger.info(f"Successfully connected to ID: {r[0]}\tpacket status {r[1]}")
+                self.clear_device_buffer()
                 return
             else:
                 self.logger.warning(f"Try: {i} Waiting to receive ACK connection packet")
@@ -99,6 +111,9 @@ class z9c(Serial):
         :return: bytes written
         """
         return super().write(pack(data, status=status))
+
+    def manual_send(self, data, status="CON"):
+        self.send_buffer.put(pack(data, status))
 
     def recv(self):
         """
@@ -150,18 +165,35 @@ class z9c(Serial):
                 if packet[1] == "FIN":
                     self.logger.warning("Lost Connection, looking for devices")
                     self.connection = False
-                    self.establish_connection()
+                elif packet[1] == "ACK" and self.connection:
+                    #clear buffer of residual packets
+                    return self.recv()
                 return packet
 
-        def close():
-            self.send(("BYE!", "FIN"))
-            super().close()
+    async def auto_run(self):
+        while 1:
+            if (r := self.recv())[1] != "ACK" and r != (None, "CON"):
+                self.recv_buffer.put(r)
+            if not self.send_buffer.empty():
+                self.send(self.send_buffer.get_nowait())
+            await asyncio.sleep(0.15)
+
+    def manual_recv(self):
+        #manual recv
+        if self.recv_buffer.empty():
+            return (None, "CON")
+        else:
+            return self.recv_buffer.get_nowait()
+
+    def close_with_FIN(self):
+        self.send("BYE!",status= "FIN")
+        super().close()
 
 from os import system
 
 def term(dev, baud):
     """
-    opens telnet client for configuring radio hardware settings
+    opens telnet client for configuring radio hardware settings on iot radio device
     :param dev:
     :param baud:
     :return:  none
@@ -173,8 +205,11 @@ def term(dev, baud):
 from textwrap import dedent
 def ping_pong(dev, baud):
     device = z9c(dev, baud)
-    while 1:
+    while device.connection:
         msg = input("\n\n[PingPongTerm]?>")
+        if msg == '':
+            if (r := device.recv())[0] != None: print(r)
+            continue
         print("\n")
         if msg.upper() == "HELP":
             print(dedent(
@@ -186,11 +221,15 @@ def ping_pong(dev, baud):
                 """
             ))
         elif msg.upper() == "EXIT":
-            device.close()
+            device.close_with_FIN()
             exit(0)
         written = device.send(msg)
         print(f"[Wrote msg to serial buffer! SZ:{written} Bytes]\r")
-        print(device.recv(), end="\r")
+        #print(device.recv(), end="\r")
+    print("Connection Closed")
+    device.close_with_FIN()
+    #look for connections again
+    ping_pong(dev, baud)
 
 if __name__ == "__main__":
 
