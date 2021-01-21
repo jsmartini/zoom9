@@ -154,7 +154,7 @@ def ping_pong(dev, baud):
     device = z9c(dev, baud)
     while 1:
         msg = input("?>")
-        if msg.upper() == "help":
+        if msg.upper() == "HELP":
             print(dedent(
                 """
                 Ping Pong z9c help menu:
@@ -163,8 +163,12 @@ def ping_pong(dev, baud):
                 exit -      exit
                 """
             ))
-        device.send(msg)
-        print(device.send(msg))
+        elif msg.upper() == "EXIT":
+            device.close()
+            exit(0)
+        written = device.send(msg)
+        print(f"[Wrote msg to serial buffer! SZ:{written} Bytes]\r")
+        print(device.recv(), end="\r")
 
 if __name__ == "__main__":
     """
@@ -209,10 +213,11 @@ if __name__ == "__main__":
     parser.add_argument("Port", metavar="P", type=str, help="Serial Device Port")
     parser.add_argument('Baud', metavar="B", type=int, help="Serial Device Baudrate")
     parser.add_argument("-T", "--Terminal", action="store_true", help="Serial Device Telnet Terminal")
+    parser.add_argument("-PP", "--PingPong", action="store_true", help="Ping Pong over z9c mesh net")
     args = parser.parse_args()
     if args.Terminal:
         term(args.Port, args.Baud)
-    else:
+    elif args.PingPong:
         ping_pong(args.Port, args.Baud)
 
 
