@@ -1,4 +1,0 @@
-Initialized Device /dev/ttyUSB0 @Baudrate 115200
-Created Serial Device for resource /dev/ttyUSB0 as ID:62b8ec28-ab36-4798-a4a6-37eef0358231
-Try: 1 Waiting to receive ACK connection packet
-Attempting to load packet of size 51
