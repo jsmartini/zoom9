@@ -7,6 +7,13 @@ import logging
 from enum import Enum
 
 global device
+logging.basicConfig(
+        level=logging.INFO,
+        #format="%(asctime)s [%(levelname)s] %(messages)s"
+    )
+import sys
+logging.getLogger().addHandler(logging.FileHandler(f"output-{datetime.datetime.now().strftime('%X')}.log"))
+logging.getLogger().addHandler(logging.StreamHandler(sys.stdout))
 
 class PacketStatus(Enum):
     ACK = "ACK"
@@ -55,29 +62,32 @@ from uuid import uuid4
 from time import sleep
 import time
 
+
+
 class z9c(Serial):
     def __init__(self, dev, baud=115200):
         super().__init__(port=dev, baudrate=baud)
-        logging.info(f"Initialized Device {dev} @Baudrate {baud}")
+        self.logger = logging.getLogger()
+        self.logger.info(f"Initialized Device {dev} @Baudrate {baud}")
         self.connection = False
         self.try_timeout = 50
         self.id = str(uuid4())
-        logging.info(f"Created Serial Device for resource {dev} as ID:{self.id}")
+        self.logger.info(f"Created Serial Device for resource {dev} as ID:{self.id}")
         self.establish_connection()
 
     def establish_connection(self):
         pkt=self.id
-        while not self.connection and self.try_timeout >= 0:
+        i = 1
+        while not self.connection and i <=self.try_timeout:
             self.send(pkt, status="ACK")
             if (r := self.recv())[1] == "ACK":
                 self.connection = True
-                logging.info(f"Successfully connected to ID: {r[0]}\tpacket status {r[1]}")
+                self.logger.info(f"Successfully connected to ID: {r[0]}\tpacket status {r[1]}")
                 return
             else:
-                self.try_timeout -= 1
-                print(f"Try: {self.try_timeout} \tWaiting to receive ACK connection packet: waiting . . . \r")
-                sleep(0.5)
-
+                self.logger.warning(f"Try: {i} Waiting to receive ACK connection packet")
+                sleep(3) #wait 3 seconds for packet
+                i += 1
         raise("Connection failed")
         exit(-1)
 
@@ -111,7 +121,7 @@ class z9c(Serial):
             return (None, "CON")
         while True:
             if not super().inWaiting() > 0: return (None, "CON")
-            i = super().read(1)
+            i = super().read(1)[0]
             if chr(i) == "Z" and flags["Z"] < 3:
                 flags["Z"] += 1
                 continue
@@ -130,11 +140,22 @@ class z9c(Serial):
                 continue
             if flags["B"] == 3 and chr(i) == "C":
                 # return tuple (py object, status)
-                super().read(1) #kick "C" out of the serial buffer
-                return (
-                    pickle.loads(super().read(meta["length"])),
+                #super().read(1) #kick "C" out of the serial buffer
+                self.logger.debug(f"Attempting to load packet of size {meta['length']}")
+                packet = (
+                    pickle.loads(super().read(int(meta["length"]))),
                     meta["status"]
                 )
+                self.logger.debug(f"Received Packet of size {sys.getsizeof(packet[0])} Bytes with Network Status {packet[1]}")
+                if packet[1] == "FIN":
+                    self.logger.warning("Lost Connection, looking for devices")
+                    self.connection = False
+                    self.establish_connection()
+                return packet
+
+        def close():
+            self.send(("BYE!", "FIN"))
+            super().close()
 
 from os import system
 
@@ -153,7 +174,8 @@ from textwrap import dedent
 def ping_pong(dev, baud):
     device = z9c(dev, baud)
     while 1:
-        msg = input("?>")
+        msg = input("\n\n[PingPongTerm]?>")
+        print("\n")
         if msg.upper() == "HELP":
             print(dedent(
                 """
@@ -171,6 +193,7 @@ def ping_pong(dev, baud):
         print(device.recv(), end="\r")
 
 if __name__ == "__main__":
+
     """
     Test Code
     """

@@ -1,0 +1,7 @@
+Initialized Device /dev/ttyUSB1 @Baudrate 115200
+Created Serial Device for resource /dev/ttyUSB1 as ID:0fc5eebf-1c2f-4e2d-a9bb-8201f1e540ac
+Try: 1 Waiting to receive ACK connection packet
+Received Packet of size 85 Bytes with Network Status ACK
+Successfully connected to ID: a1ffdbf6-e304-4080-ac66-cb730d4e391a	packet status ACK
+Received Packet of size 85 Bytes with Network Status ACK
+Received Packet of size 54 Bytes with Network Status CON
