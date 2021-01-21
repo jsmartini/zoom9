@@ -66,8 +66,15 @@ import asyncio
 
 
 class z9c(Serial):
+
+    recv_buffer = Stack(maxsize=200)
+    send_buffer = Stack(maxsize=200)
+    dev = ""
+    baud = ""
+
     def __init__(self, dev, baud=115200, async_mode = False):
-        super().__init__(port=dev, baudrate=baud)
+        self.dev, self.baud = dev, baud
+        super().__init__(port=self.dev, baudrate=self.baud)
         self.logger = logging.getLogger()
         self.logger.info(f"Initialized Device {dev} @Baudrate {baud}")
         self.connection = False
@@ -76,11 +83,6 @@ class z9c(Serial):
         self.logger.info(f"Created Serial Device for resource {dev} as ID:{self.id}")
         self.establish_connection()
         self.async_mode = async_mode
-        if self.async_mode:
-            self.recv_buffer = Stack(maxsize=200)
-            self.send_buffer = Stack(maxsize=200)
-            self.logger.info("STARTING auto run Server")
-
 
     def clear_device_buffer(self):
         logging.debug("Clearing Device Buffer")
@@ -117,7 +119,7 @@ class z9c(Serial):
 
     def recv(self):
         """
-        python coroutine to listen, parse packets, and move python messages to objBuffer stack
+        unpack algo for serial buffers
 
         slow algorithm
 
@@ -166,7 +168,7 @@ class z9c(Serial):
                     self.logger.warning("Lost Connection, looking for devices")
                     self.connection = False
                 elif packet[1] == "ACK" and self.connection:
-                    #clear buffer of residual packets
+                    #clear buffer of residual ACK packets
                     return self.recv()
                 return packet
 
@@ -190,6 +192,19 @@ class z9c(Serial):
         super().close()
 
 from os import system
+
+async def init_coroutine_methods(methods = []):
+    #gather all processes
+    #instantiate all classes prior to calling
+    await asyncio.gather(*[m() for m in methods])
+    """
+    second last to be called 
+    
+    then:
+    
+        loop = asyncio.get_event_loop()
+        loop.run_until_complete(init_corountine_methods(methods : list))
+    """
 
 def term(dev, baud):
     """
